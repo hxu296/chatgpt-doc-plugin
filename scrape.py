@@ -14,19 +14,20 @@ from bs4 import BeautifulSoup
 HTTP_URL_PATTERN = r'^http[s]*://.+' # Regex pattern to match a URL
 WEBSITE_DUMP_DIRECTORY = "text" # Directory to dump raw bs4 output
 PROCESSED_CSV_DIRECTORY = "processed" # Directory to save processed CSV file
-ENTRY_POINTS = ["https://omscs.gatech.edu/",
-                "https://www.gatech.edu/",
-                "https://www.cc.gatech.edu/ms-computer-science-admissions-faq",
-                "https://housing.gatech.edu/",
-                "https://hr.gatech.edu/",
-                "https://health.gatech.edu/student-health-insurance/",
-                "https://cse.gatech.edu/",
-                "https://support.cc.gatech.edu/services/web-hosting",
-                "https://webmasters.gatech.edu/handbook/guide-domain-names",
-                "https://catalog.gatech.edu/coursesaz/",
-                "https://catalog.gatech.edu/courses-grad/",
-                "https://www.gatech.edu/academics/all-degree-programs",
-                ] # Define website entry points
+# ENTRY_POINTS = ["https://omscs.gatech.edu/",
+#                 "https://www.gatech.edu/",
+#                 "https://www.cc.gatech.edu/ms-computer-science-admissions-faq",
+#                 "https://housing.gatech.edu/",
+#                 "https://hr.gatech.edu/",
+#                 "https://health.gatech.edu/student-health-insurance/",
+#                 "https://cse.gatech.edu/",
+#                 "https://support.cc.gatech.edu/services/web-hosting",
+#                 "https://webmasters.gatech.edu/handbook/guide-domain-names",
+#                 "https://catalog.gatech.edu/coursesaz/",
+#                 "https://catalog.gatech.edu/courses-grad/",
+#                 "https://www.gatech.edu/academics/all-degree-programs",
+#                 ] # Define website entry points
+ENTRY_POINTS = []
 
 # Create a class to parse the HTML and get the hyperlinks
 class HyperlinkParser(HTMLParser):
@@ -113,7 +114,7 @@ def scrape_page(url: str):
 
     # Get the text from the URL using BeautifulSoup
     try:
-        resp = requests.get(url, timeout=1000)
+        resp = requests.get(url, timeout=1000, verify=False)
         if resp.status_code != 200:
             return
 
@@ -140,7 +141,7 @@ def scrape_page(url: str):
         if not os.path.exists(sub_directory):
             os.mkdir(sub_directory)
         # Save text from the url to a <url>.txt file
-        file_name = url[8:].replace("/", "_") + ".txt"
+        file_name = url[8:].replace("/", "*") + ".txt"
         with open(osp.join(sub_directory, file_name), "w", encoding="utf-8") as f:
             f.write(text)
     except Exception as e:
@@ -161,7 +162,7 @@ def crawl(urls):
         os.mkdir(WEBSITE_DUMP_DIRECTORY)
 
     # While the queue is not empty, continue crawling
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as excutor:
+    with concurrent.futures.ThreadPoolExecutor() as excutor:
         while queue:
             futures = [excutor.submit(scrape_page, url) for url in queue]
             queue = []
@@ -193,22 +194,43 @@ def to_csv():
     if not os.path.exists(PROCESSED_CSV_DIRECTORY):
         os.mkdir(PROCESSED_CSV_DIRECTORY)
     texts = []
+    total_words = 0
+    seen_texts = set() # avoid duplicates
     for domain in os.listdir(WEBSITE_DUMP_DIRECTORY):
         domain_dump = osp.join(WEBSITE_DUMP_DIRECTORY, domain)
         for fname in os.listdir(domain_dump):
             site_dump = osp.join(WEBSITE_DUMP_DIRECTORY, domain, fname)
-            site_id = site_dump[:-4] # remove .txt at the end
+            site_url = fname[:-4].replace("*", "/") # remove .txt at the end and restore '/'
+            if not site_url.startswith(domain):
+                site_url = domain[0] + site_url
             with open(site_dump, "r", encoding="UTF-8") as f:
                 text = f.read()
-                texts.append((site_id, text))
+                text_len = len(text.split())
+                # ignore pages with more than 10,000 words (mainly archives)
+                if text_len > 1e4: continue
+                if text not in seen_texts:
+                    texts.append((site_url, text))
+                    total_words += text_len
+                seen_texts.add(text)
 
-    df = pd.DataFrame(texts, columns=['fname', 'text'])
-    df['text'] = df.fname + ". " + remove_newlines(df.text)
+
+    df = pd.DataFrame(texts, columns=['url', 'text'])
+    df['text'] = remove_newlines(df.text)
     df.to_csv('processed/scraped.csv')
     print(df.head())
+    print(f'Total websites: {len(df)}')
+    print(f'Total words: {total_words}')
+    print(f'Estimated embedding cost: ${total_words / 0.75 / 1000 * 0.0004:.2f}')
 
+def initialize():
+    for domain in os.listdir(WEBSITE_DUMP_DIRECTORY):
+        for fname in os.listdir(osp.join(WEBSITE_DUMP_DIRECTORY, domain)):
+            url = 'https://' + fname[:-4].replace('*', '/')
+            ENTRY_POINTS.append(url)
+    print(f'Initialized with {len(ENTRY_POINTS)} URLs')
 
 if __name__ == "__main__":
-    crawl(ENTRY_POINTS)
+    #initialize()
+    #crawl(ENTRY_POINTS)
     print("convert to csv....")
     to_csv()

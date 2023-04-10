@@ -1,61 +1,61 @@
-import json
-from typing import List
-
+from fastapi import FastAPI, Request
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from supabase import create_client, Client
+from qa import answer
 import uvicorn
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.utils import get_openapi
-from fastapi.staticfiles import StaticFiles
-from langchain.docstore.document import Document
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.vectorstores.faiss import FAISS
-from pydantic import BaseModel
+import os
 
-app = FastAPI(
-    title="RisingWave Doc Plugin API",
-    description="A plugin for answering questions based on natural language queries, related documents, metadata",
-    version="1.0.0",
-    servers=[{"url": "https://localhost:8080.com"}],)
-app.mount("/.well-known", StaticFiles(directory=".well-known"), name="static")
+app = FastAPI()
+limiter = Limiter(key_func=get_remote_address, default_limits=["5/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
+# connect to supabase
+url: str = os.environ.get("SUPABASE_URL")
+key: str = os.environ.get("SUPABASE_KEY")
+supabase_client = create_client(url, key)
 
-origins = ["*"]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+SUPABASE_TABLE_NAME = "qa_log"
 
 
-search_index = FAISS.load_local("search_index", OpenAIEmbeddings())
+@app.get("/")
+async def root():
+    return {"code": 200, "msg": "I am alive"}
 
 
-
-
-class QueryResponse(BaseModel):
-   result: List[Document]
-
-class QueryRequest(BaseModel):
-   query: str
-
-@app.post("/query", response_model=QueryResponse, description="Accept a questions about risingwave, fetch most related contents from docs")
-async def query(request: QueryRequest):
+@app.get("/qa")
+async def qa(req: Request):
     try:
-      docs = search_index.similarity_search(request.query, k=5)
-      return QueryResponse(result = docs)
-    except Exception as e:
-      raise HTTPException(status_code=500, detail="Internal Service Error")
+        q = req.query_params["q"]
+        a = answer(q)
+        supabase_client.table(SUPABASE_TABLE_NAME).insert({
+            "question": q,
+            "answer": a,
+            "success": True,
+        }).execute()
+        return {
+            "code": 200,
+            "answer": a,
+        }
+    except Exception as err:
+        try:
+            print(err)
+            supabase_client.table(SUPABASE_TABLE_NAME).insert({
+                "question": q,
+                "answer": "",
+                "success": False,
+
+            }).execute()
+        finally:
+            return {
+                "code": 500,
+                "answer": "Failed to process the question"
+            }
+
 
 if __name__ == "__main__":
-   with open('.well-known/openapi.json', 'w') as f:
-    json.dump(get_openapi(
-        title=app.title,
-        version=app.version,
-        openapi_version=app.openapi_version,
-        description=app.description,
-        routes=app.routes,
-    ), f, indent = 4)
-   uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0",  port=8989, log_level="info")

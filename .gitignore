@@ -133,3 +133,4 @@ dmypy.json
 # scraped files
 /text
 /processed
+/search_index

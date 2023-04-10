@@ -14,7 +14,19 @@ from bs4 import BeautifulSoup
 HTTP_URL_PATTERN = r'^http[s]*://.+' # Regex pattern to match a URL
 WEBSITE_DUMP_DIRECTORY = "text" # Directory to dump raw bs4 output
 PROCESSED_CSV_DIRECTORY = "processed" # Directory to save processed CSV file
-ENTRY_POINTS = ["https://risingwave.dev/docs/current/intro/"] # Define website entry points
+ENTRY_POINTS = ["https://omscs.gatech.edu/",
+                "https://www.gatech.edu/",
+                "https://www.cc.gatech.edu/ms-computer-science-admissions-faq",
+                "https://housing.gatech.edu/",
+                "https://hr.gatech.edu/",
+                "https://health.gatech.edu/student-health-insurance/",
+                "https://cse.gatech.edu/",
+                "https://support.cc.gatech.edu/services/web-hosting",
+                "https://webmasters.gatech.edu/handbook/guide-domain-names",
+                "https://catalog.gatech.edu/coursesaz/",
+                "https://catalog.gatech.edu/courses-grad/",
+                "https://www.gatech.edu/academics/all-degree-programs",
+                ] # Define website entry points
 
 # Create a class to parse the HTML and get the hyperlinks
 class HyperlinkParser(HTMLParser):

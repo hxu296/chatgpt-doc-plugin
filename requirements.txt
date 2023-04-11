@@ -9,3 +9,4 @@ slowapi
 openai
 faiss-cpu
 supabase
+supabase
